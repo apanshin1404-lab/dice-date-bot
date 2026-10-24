@@ -117,11 +117,27 @@ async def health_server():
     await web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000"))).start()
 
 
+async def keep_awake():
+    # Бесплатный Render усыпляет сервис без запросов. Раз в 10 минут дёргаем сами себя.
+    import aiohttp
+    url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not url:
+        return
+    while True:
+        await asyncio.sleep(600)
+        try:
+            async with aiohttp.ClientSession() as s:
+                await s.get(url, timeout=aiohttp.ClientTimeout(total=20))
+        except Exception:
+            pass
+
+
 async def main():
     bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
     setup(dp, bot)
     await health_server()
+    asyncio.create_task(keep_awake())
     await dp.start_polling(bot)
 
 
