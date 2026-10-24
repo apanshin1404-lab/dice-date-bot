@@ -10,8 +10,17 @@ from aiogram.types import (
     InlineQueryResultPhoto, InputMediaAnimation, InputMediaPhoto, Message,
 )
 
-import dice_art
 from content import DATES
+
+try:
+    import dice_art
+except ModuleNotFoundError:  # файл мог загрузиться как "dice art.py"
+    import glob
+    import importlib.util
+    _p = glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dice*art.py"))[0]
+    _spec = importlib.util.spec_from_file_location("dice_art", _p)
+    dice_art = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(dice_art)
 
 TOKEN = os.environ["BOT_TOKEN"]
 PORT = int(os.environ.get("PORT", "10000"))
