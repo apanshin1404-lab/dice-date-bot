@@ -3,6 +3,7 @@ import os
 import random
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 from aiogram.types import (
     CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -117,7 +118,7 @@ async def health_server():
 
 
 async def main():
-    bot = Bot(TOKEN, parse_mode="HTML")
+    bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
     setup(dp, bot)
     await health_server()
