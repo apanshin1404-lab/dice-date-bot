@@ -6,15 +6,22 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 from aiogram.types import (
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
-    InlineQuery, InlineQueryResultArticle, InputTextMessageContent, Message,
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery,
+    InlineQueryResultPhoto, InputMediaAnimation, InputMediaPhoto, Message,
 )
 
+import dice_art
 from content import DATES
 
 TOKEN = os.environ["BOT_TOKEN"]
+PORT = int(os.environ.get("PORT", "10000"))
+BASE_URL = os.environ.get("RENDER_EXTERNAL_URL", f"http://localhost:{PORT}")
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 DICE_FACES = "⚀⚁⚂⚃⚄⚅"
-ANIM_FRAMES = ["🎲 Кубик катится...", "🎲 Крутится...", "🎲 Почти..."]
+
+
+def asset(name: str) -> str:
+    return f"{BASE_URL}/static/{name}"
 
 
 def kb(text: str, data: str) -> InlineKeyboardMarkup:
@@ -53,13 +60,20 @@ async def roll_real(bot: Bot, chat_id: int) -> int:
     return msg.dice.value
 
 
-# ---------- inline-режим (в вашем личном чате через @бот): кубик рисуем сами ----------
+# ---------- inline-режим (в вашем личном чате через @бот): крутим свою картинку ----------
 
-async def roll_fake(bot: Bot, inline_message_id: str) -> int:
-    for frame in ANIM_FRAMES:
-        await bot.edit_message_text(frame, inline_message_id=inline_message_id)
-        await asyncio.sleep(0.7)
-    return random.randint(1, 6)
+async def roll_inline(bot: Bot, imid: str, caption: str, markup: InlineKeyboardMarkup) -> None:
+    """Показывает крутящийся кубик, потом выпавшую грань с подписью."""
+    await bot.edit_message_media(
+        InputMediaAnimation(media=asset("dice.gif"), caption="🎲 Кубик крутится..."),
+        inline_message_id=imid,
+    )
+    await asyncio.sleep(2.5)
+    value = random.randint(1, 6)
+    await bot.edit_message_media(
+        InputMediaPhoto(media=asset(f"face{value}.png"), caption=caption(value), parse_mode="HTML"),
+        inline_message_id=imid, reply_markup=markup(value),
+    )
 
 
 def setup(dp: Dispatcher, bot: Bot) -> None:
@@ -71,11 +85,13 @@ def setup(dp: Dispatcher, bot: Bot) -> None:
     @dp.inline_query()
     async def inline(q: InlineQuery):
         await q.answer(
-            [InlineQueryResultArticle(
+            [InlineQueryResultPhoto(
                 id="dice",
+                photo_url=asset("cover.png"), thumbnail_url=asset("cover.png"),
+                photo_width=512, photo_height=512,
                 title="🎲 Кубик свиданий",
                 description="Кидай кубик, он решит, куда идём",
-                input_message_content=InputTextMessageContent(message_text=START_TEXT, parse_mode="HTML"),
+                caption=START_TEXT, parse_mode="HTML",
                 reply_markup=kb("🎲 Кинуть кубик", "roll:date"),
             )],
             cache_time=0, is_personal=True,
@@ -85,9 +101,8 @@ def setup(dp: Dispatcher, bot: Bot) -> None:
     async def on_roll_date(c: CallbackQuery):
         await c.answer()
         if c.inline_message_id:
-            d = await roll_fake(bot, c.inline_message_id)
-            await bot.edit_message_text(date_text(d), inline_message_id=c.inline_message_id,
-                                        reply_markup=kb("🎲 Кинуть за формат", f"roll:fmt:{d}"))
+            await roll_inline(bot, c.inline_message_id, date_text,
+                              lambda d: kb("🎲 Кинуть за формат", f"roll:fmt:{d}"))
         else:
             await c.message.edit_reply_markup(reply_markup=None)
             d = await roll_real(bot, c.message.chat.id)
@@ -98,9 +113,8 @@ def setup(dp: Dispatcher, bot: Bot) -> None:
         await c.answer()
         d = int(c.data.split(":")[2])
         if c.inline_message_id:
-            f = await roll_fake(bot, c.inline_message_id)
-            await bot.edit_message_text(final_text(d, f), inline_message_id=c.inline_message_id,
-                                        reply_markup=kb("🔁 Сыграть ещё раз", "roll:date"))
+            await roll_inline(bot, c.inline_message_id, lambda f: final_text(d, f),
+                              lambda f: kb("🔁 Сыграть ещё раз", "roll:date"))
         else:
             await c.message.edit_reply_markup(reply_markup=None)
             f = await roll_real(bot, c.message.chat.id)
@@ -109,12 +123,15 @@ def setup(dp: Dispatcher, bot: Bot) -> None:
 
 async def health_server():
     # Хостинги вроде Render ждут открытый порт, иначе считают сервис мёртвым.
+    # Заодно раздаём картинки кубика, Telegram забирает их по ссылке.
     from aiohttp import web
+    dice_art.build(ASSETS)
     app = web.Application()
     app.router.add_get("/", lambda r: web.Response(text="ok"))
+    app.router.add_static("/static/", ASSETS)
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000"))).start()
+    await web.TCPSite(runner, "0.0.0.0", PORT).start()
 
 
 async def keep_awake():
